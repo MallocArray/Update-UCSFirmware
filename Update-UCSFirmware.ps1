@@ -34,12 +34,19 @@ try {
         $ServiceProfileToUpdate =  Get-UcsServiceProfile | Get-UcsVnic |  where { $_.addr -ieq  $MacAddr.Mac } | Get-UcsParent
 	    # Find the physical hardware the service profile is running on:
 	    $UCSHardware = $ServiceProfile.PnDn
+        
+        #Validating environment
         if ($ServiceProfileToUpdate -eq $null) {
             write-host $VMhost "was not found in UCS.  Skipping host"
             Continue
         }
         if ((Get-UcsFirmwareComputeHostPack | where {$_.ucs -eq $ServiceProfileToUpdate.Ucs -and $_.name -eq $DestFirmwarePackage }).count -ne 1) {
             write-host "Firmware Package" $DestFirmwarePackage "not found on" $ServiceProfileToUpdate.Ucs "for server" $vmhost.name
+            Continue
+        }
+        if ($ServiceProfileToUpdate.HostFwPolicyName -eq $DestFirmwarePackage) {
+            Write-Host $ServiceProfileToUpdate.name "is already running firmware" $DestFirmwarePackage
+            Continue
         }
 
 		Write-Host "vC: Placing ESXi Host: $($VMHost.Name) into maintenance mode"
@@ -50,6 +57,8 @@ try {
 			Sleep 10
 		} until ((Get-VMHost $VMHost).State -eq "Maintenance")
  
+#Will add ability to install a VIB or Update Manager baseline here to install new drivers prior to shutdown
+
 		Write-Host "vC: ESXi Host: $($VMHost.Name) now in Maintenance Mode, shutting down Host"
 		#$Shutdown = $VMHost.ExtensionData.ShutdownHost($true)
  
