@@ -68,12 +68,12 @@ try {
 		Write-Host "UCS: ESXi Host: $($VMhost.Name) is running on UCS SP: $($ServiceProfileToUpdate.name)"
 		Write-Host "UCS: Waiting for UCS SP: $($ServiceProfileToUpdate.name) to gracefully power down"
 	 	do {
-			if ( (get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn).OperPower -eq "off")
+			if ( (get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfile.Ucs).OperPower -eq "off")
 			{
 				break
 			}
 			Sleep 60
-		} until ((get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn).OperPower -eq "off" )
+		} until ((get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfile.Ucs).OperPower -eq "off" )
 		Write-Host "UCS: UCS SP: $($ServiceProfileToUpdate.name) powered down"
  
 		Write-Host "UCS: Setting desired power state for UCS SP: $($ServiceProfileToUpdate.name) to down"
@@ -92,7 +92,7 @@ try {
 		Write-Host "UCS: Waiting for UCS SP: $($ServiceProfileToUpdate.name) to complete firmware update process..."
 		do {
 			Sleep 40
-		} until ((Get-UcsManagedObject -Dn $ServiceProfileToUpdate.Dn).AssocState -ieq "associated")
+		} until ((Get-UcsManagedObject -Dn $ServiceProfileToUpdate.Dn -ucs $ServiceProfile.Ucs).AssocState -ieq "associated")
  
 		Write-Host "UCS: Host Firmware Pack update process complete.  Setting desired power state for UCS SP: $($ServiceProfileToUpdate.name) to 'up'"
 		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "up" -Force | Out-Null
