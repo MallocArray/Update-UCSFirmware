@@ -1,21 +1,50 @@
-﻿# Script to update ESXi host UCS firmware in a rolling fashion inside of a vSphere cluster.
-#
-# Assumptions:
-#    1. You have assigned the new firmware package to the service profile template defined in the variable below. 
-#    2. The service profile template is an "initial" template, and not an "updating" template.
-#    3. You have already connected to the appropriate vSphere server and UCS environment in PowerShell/PowerCLI.
-#
-# Author: Tim Patterson <tim@pc-professionals.net>
-# Last Updated: 2014-02-03
-# 
-# Adapted from Cisco example found here: https://communities.cisco.com/docs/DOC-36050
- 
+﻿#requires -version 2
+<#
+.SYNOPSIS
+  Script to update Cisco UCS Firmware on VMware based blades in a rolling update manner, by VMware Cluster
+.DESCRIPTION
+  User provides vSphere cluster, hostname pattern, and UCS Host Firmware Policy name.
+  The script will sequentially check if each host is running the requested firmware.
+  If not running the desired firmware, the host will be put into maintenance, shut down,
+  UCS firmware update applied, and then powered on and taken out of maintenance mode
+  This repeats until all hosts in the cluster have been updated.
+.PARAMETER <Parameter_Name>
+    <Brief description of parameter input required. Repeat this attribute if required>
+.INPUTS
+  Script assumes the user has previously installed the VMware PowerCLI and Cisco PowerTool modules into Powershell
+    # VMware PowerCLI install
+    # Install-Module VMware.PowerCLI
+
+    # UCS PowerTool install
+    # Install-Module Cisco.UCSManager
+  Also assumes a connection to vSphere and UCS has already been created using the modules
+    $vcenters = @("vcenter.domain.local","vcenter2.domain.local)
+    Connect-VIServer $vcenters -AllLinked
+    
+    $UCSManagers= @("192.168.0.1","UCS1.domain.local")
+    Import-Module Cisco.UCSManager
+    Set-UcsPowerToolConfiguration -supportmultipledefaultucs $true 
+    connect-ucs $UCSManagers -Credential $UCSAccount
+.OUTPUTS
+  None
+.NOTES
+  Version:        1.1
+  Author:         Joshua Post
+  Creation Date:  8/2/2018
+  Purpose/Change: Modification of other base scripts to support multiple UCS connections and Update Manager to install drivers associated with firmware update
+  Based on http://timsvirtualworld.com/2014/02/automate-ucs-esxi-host-firmware-updates-with-powerclipowertool/
+  Adapted from Cisco example found here: https://communities.cisco.com/docs/DOC-36050
+.EXAMPLE
+  .\Update-UCSFirmware.ps1
+#>
+
+
 [CmdletBinding()]
 Param(
 	[Parameter(Mandatory=$True, HelpMessage="ESXi Cluster to Update")]
 	[string]$ESXiCluster,
  
-	[Parameter(Mandatory=$True, HelpMessage="ESXi Host(s) in cluster to update. Specify * for all hosts.")]
+	[Parameter(Mandatory=$True, HelpMessage="ESXi Host(s) in cluster to update. Specify * for all hosts or as a wildcard")]
 	[string]$ESXiHost,
  
 	[Parameter(Mandatory=$True, HelpMessage="UCS Host Firmware Package Name")]
