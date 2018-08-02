@@ -26,14 +26,17 @@ Write-Host "Starting process at $(date)"
 Write-Host "Working on ESXi Cluster: $ESXiCluster"
 Write-Host "Using Host Firmware Package: $DestFirmwarePackage"
  
+
 try {
 	Foreach ($VMHost in (Get-Cluster $ESXiCluster | Get-VMHost | Where { $_.Name -like "$ESXiHost" } )) {
-		
+		# Clearing Variables to be safe
+        $MacAddr=$ServiceProfiletoUpdate=$UCShardware=$Maint=$Shutdown=$poweron=$ackuserack=$null
+        
         Write-Host "UCS: Correlating ESXi Host: $($VMHost.Name) to running UCS Service Profile (SP)"
  	    $MacAddr = Get-VMHostNetworkAdapter -vmhost $vmhost -Physical | where {$_.BitRatePerSec -gt 0} | select -first 1 #Select first connected physical NIC
         $ServiceProfileToUpdate =  Get-UcsServiceProfile | Get-UcsVnic |  where { $_.addr -ieq  $MacAddr.Mac } | Get-UcsParent
 	    # Find the physical hardware the service profile is running on:
-	    $UCSHardware = $ServiceProfile.PnDn
+	    $UCSHardware = $ServiceProfileToUpdate.PnDn
         
         #Validating environment
         if ($ServiceProfileToUpdate -eq $null) {
@@ -68,20 +71,20 @@ try {
 		Write-Host "UCS: ESXi Host: $($VMhost.Name) is running on UCS SP: $($ServiceProfileToUpdate.name)"
 		Write-Host "UCS: Waiting for UCS SP: $($ServiceProfileToUpdate.name) to gracefully power down"
 	 	do {
-			if ( (get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfile.Ucs).OperPower -eq "off")
+			if ( (get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfileToUpdate.Ucs).OperPower -eq "off")
 			{
 				break
 			}
 			Sleep 60
-		} until ((get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfile.Ucs).OperPower -eq "off" )
+		} until ((get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfileToUpdate.Ucs).OperPower -eq "off" )
 		Write-Host "UCS: UCS SP: $($ServiceProfileToUpdate.name) powered down"
  
 		Write-Host "UCS: Setting desired power state for UCS SP: $($ServiceProfileToUpdate.name) to down"
 		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "down" -Force | Out-Null
  
-		# Unbind / Bind to SP template, as this will force FW update action:
-		#$ServiceProfileToUpdate | Set-UcsServiceProfile -srctemplname '' -force
-		#$ServiceProfileToUpdate | Set-UcsServiceProfile -srctemplname "$DestFirmwarePackage" -force
+
+		Write-Host "UCS: Changing Host Firmware pack policy for UCS SP: $($ServiceProfileToUpdate.name) to '$($DestFirmwarePackage)'"
+		#$updatehfp = $ServiceProfileToUpdate | Set-UcsServiceProfile -HostFwPolicyName (Get-UcsFirmwareComputeHostPack -Name $DestFirmwarePackage -Ucs $ServiceProfileToUpdate.Ucs).Name -Force
  
 		Write-Host "UCS: Acknowledging any User Maintenance Actions for UCS SP: $($ServiceProfileToUpdate.name)"
 		if (($ServiceProfileToUpdate | Get-UcsLsmaintAck| measure).Count -ge 1)
@@ -92,7 +95,7 @@ try {
 		Write-Host "UCS: Waiting for UCS SP: $($ServiceProfileToUpdate.name) to complete firmware update process..."
 		do {
 			Sleep 40
-		} until ((Get-UcsManagedObject -Dn $ServiceProfileToUpdate.Dn -ucs $ServiceProfile.Ucs).AssocState -ieq "associated")
+		} until ((Get-UcsManagedObject -Dn $ServiceProfileToUpdate.Dn -ucs $ServiceProfileToUpdate.Ucs).AssocState -ieq "associated")
  
 		Write-Host "UCS: Host Firmware Pack update process complete.  Setting desired power state for UCS SP: $($ServiceProfileToUpdate.name) to 'up'"
 		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "up" -Force | Out-Null
