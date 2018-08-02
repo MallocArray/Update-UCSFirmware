@@ -18,13 +18,13 @@ Param(
 	[Parameter(Mandatory=$True, HelpMessage="ESXi Host(s) in cluster to update. Specify * for all hosts.")]
 	[string]$ESXiHost,
  
-	[Parameter(Mandatory=$True, HelpMessage="UCS Service Profile Template Name")]
-	[string]$SPTemplate
+	[Parameter(Mandatory=$True, HelpMessage="UCS Host Firmware Package Name")]
+	[string]$DestFirmwarePackage
 )
  
 Write-Host "Starting process at $(date)"
 Write-Host "Working on ESXi Cluster: $ESXiCluster"
-Write-Host "Using service profile template: $SPTemplate"
+Write-Host "Using Host Firmware Package: $DestFirmwarePackage"
  
 try {
 	Foreach ($VMHost in (Get-Cluster $ESXiCluster | Get-VMHost | Where { $_.Name -like "$ESXiHost" } )) {
@@ -37,7 +37,10 @@ try {
         if ($ServiceProfileToUpdate -eq $null) {
             write-host $VMhost "was not found in UCS.  Skipping host"
             Continue
-            }
+        }
+        if ((Get-UcsFirmwareComputeHostPack | where {$_.ucs -eq $ServiceProfileToUpdate.Ucs -and $_.name -eq $DestFirmwarePackage }).count -ne 1) {
+            write-host "Firmware Package" $DestFirmwarePackage "not found on" $ServiceProfileToUpdate.Ucs "for server" $vmhost.name
+        }
 
 		Write-Host "vC: Placing ESXi Host: $($VMHost.Name) into maintenance mode"
 		#$Maint = $VMHost | Set-VMHost -State Maintenance -Evacuate
@@ -69,7 +72,7 @@ try {
  
 		# Unbind / Bind to SP template, as this will force FW update action:
 		#$ServiceProfileToUpdate | Set-UcsServiceProfile -srctemplname '' -force
-		#$ServiceProfileToUpdate | Set-UcsServiceProfile -srctemplname "$SPTemplate" -force
+		#$ServiceProfileToUpdate | Set-UcsServiceProfile -srctemplname "$DestFirmwarePackage" -force
  
 		Write-Host "UCS: Acknowledging any User Maintenance Actions for UCS SP: $($ServiceProfileToUpdate.name)"
 		if (($ServiceProfileToUpdate | Get-UcsLsmaintAck| measure).Count -ge 1)
