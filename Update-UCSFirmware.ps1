@@ -28,15 +28,19 @@
 .OUTPUTS
   None
 .NOTES
-  Version:        1.1
+  Version:        1.2
   Author:         Joshua Post
   Creation Date:  8/2/2018
   Purpose/Change: Modification of other base scripts to support multiple UCS connections and Update Manager to install drivers associated with firmware update
   Based on http://timsvirtualworld.com/2014/02/automate-ucs-esxi-host-firmware-updates-with-powerclipowertool/
   Adapted from Cisco example found here: https://communities.cisco.com/docs/DOC-36050
 .EXAMPLE
+  Run script, being prompted for all input, but no updates installed
   .\Update-UCSFirmware.ps1
-  .\Update-UCSFirmware.ps1 -ESXiCluster "UCS1 Windows" -ESXiHost "*" -FirmwarePackage "3.2(3d)" -InstallUpdates
+  Run script, providing all needed input including baseline to install updates
+  .\Update-UCSFirmware.ps1 -ESXiCluster "Cluster1" -ESXiHost "*" -FirmwarePackage "3.2(3d)" -baseline "3.2(3d) Drivers"
+  Run script, being prompted for baselines to install updates
+  .\Update-UCSFirmware.ps1 -PromptBaseline
 #>
 
 
@@ -111,6 +115,7 @@ try {
 		# Clearing Variables to be safe
         $MacAddr=$ServiceProfiletoUpdate=$UCShardware=$Maint=$Shutdown=$poweron=$ackuserack=$null
         
+        Write-Host "Processing $($VMHost.name)"
         Write-Host "UCS: Correlating ESXi Host: $($VMHost.Name) to running UCS Service Profile (SP)"
  	    $MacAddr = Get-VMHostNetworkAdapter -vmhost $vmhost -Physical | where {$_.BitRatePerSec -gt 0} | select -first 1 #Select first connected physical NIC
         $ServiceProfileToUpdate =  Get-UcsServiceProfile | Get-UcsVnic |  where { $_.addr -ieq  $MacAddr.Mac } | Get-UcsParent
