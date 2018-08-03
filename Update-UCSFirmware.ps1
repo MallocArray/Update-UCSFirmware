@@ -38,44 +38,48 @@
   .\Update-UCSFirmware.ps1
 #>
 
-<#
+
 [CmdletBinding()]
 Param(
-	[Parameter(Mandatory=$True, HelpMessage="ESXi Cluster to Update")]
+	[Parameter(Mandatory=$False, HelpMessage="ESXi Cluster to Update")]
 	[string]$ESXiCluster,
  
-	[Parameter(Mandatory=$True, HelpMessage="ESXi Host(s) in cluster to update. Specify * for all hosts or as a wildcard")]
+	[Parameter(Mandatory=$False, HelpMessage="ESXi Host(s) in cluster to update. Specify * for all hosts or as a wildcard")]
 	[string]$ESXiHost,
  
-	[Parameter(Mandatory=$True, HelpMessage="UCS Host Firmware Package Name")]
+	[Parameter(Mandatory=$False, HelpMessage="UCS Host Firmware Package Name")]
 	[string]$DestFirmwarePackage
 )
-#>
+
 
 ########################################
-# Listing Available options
+# Listing Available options if not supplied
 ########################################
-$x=1
-$ClusterList = Get-Cluster | sort name
-Write-Host "`nAvailable Clusters to update"
-$ClusterList | %{Write-Host $x":" $_.name ; $x++}
-$x = Read-Host "Enter the number of the package for the update"
-$ESXiCluster = $ClusterList[$x-1].name
+if ($ESXiCluster -eq "") {
+    $x=1
+    $ClusterList = Get-Cluster | sort name
+    Write-Host "`nAvailable Clusters to update"
+    $ClusterList | %{Write-Host $x":" $_.name ; $x++}
+    $x = Read-Host "Enter the number of the package for the update"
+    $ESXiCluster = $ClusterList[$x-1].name
+}
 
-Write-Host "`nEnter name of ESXi Host to update. `nSpecify a FQDN, * for all hosts in cluster, or a wildcard such as Server1*"
-$ESXiHost = Read-Host "ESXi Host"
+if ($ESXiHost -eq "") {
+    Write-Host "`nEnter name of ESXi Host to update. `nSpecify a FQDN, * for all hosts in cluster, or a wildcard such as Server1*"
+    $ESXiHost = Read-Host "ESXi Host"
+}
 
-
-$x=1
-$FirmwarePackageList = Get-UcsFirmwareComputeHostPack | select name -unique | sort name
-Write-Host "`nHost Firmware Packages available on connected UCS systems"
-$FirmwarePackageList | %{Write-Host $x":" $_.name ; $x++}
-$x = Read-Host "Enter the number of the package for the update"
-$DestFirmwarePackage = $FirmwarePackageList[$x-1].name
-
+If ($DestFirmwarePackage -eq "") {
+    $x=1
+    $FirmwarePackageList = Get-UcsFirmwareComputeHostPack | select name -unique | sort name
+    Write-Host "`nHost Firmware Packages available on connected UCS systems"
+    $FirmwarePackageList | %{Write-Host $x":" $_.name ; $x++}
+    $x = Read-Host "Enter the number of the package for the update"
+    $DestFirmwarePackage = $FirmwarePackageList[$x-1].name
+}
 
  
-Write-Host "Starting process at $(date)"
+Write-Host "`nStarting process at $(date)"
 Write-Host "Working on ESXi Cluster: $ESXiCluster"
 Write-Host "Using Host Firmware Package: $DestFirmwarePackage"
  
@@ -111,7 +115,7 @@ try {
 		Write-Host "vC: Waiting for ESXi Host: $($VMHost.Name) to enter Maintenance Mode"
 		do {
 			Sleep 10
-		} until ((Get-VMHost $VMHost).State -eq "Maintenance")
+		} until ((Get-VMHost $VMHost).ConnectionState -eq "Maintenance")
  
 #Will add ability to install a VIB or Update Manager baseline here to install new drivers prior to shutdown
         Test-compliance -entity $vmhost
@@ -158,7 +162,9 @@ try {
 		Write "vC: Waiting for ESXi: $($VMHost.Name) to connect to vCenter"
 		do {
 			Sleep 40
-		} until (($VMHost = Get-VMHost $VMHost).ConnectionState -eq "Connected" )
+		} until (($VMHost = Get-VMHost $VMHost).ConnectionState -ne "NotResponding" ) 
+        Write-host "VC: Exiting maintenance mode"
+        #$VMHost | Set-VMHost -State Connected 
 	}
 }
 Catch 
