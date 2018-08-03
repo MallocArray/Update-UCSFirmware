@@ -47,8 +47,9 @@ Param(
  
 	[Parameter(Mandatory=$False, HelpMessage="ESXi Host(s) in cluster to update. Specify * for all hosts or as a wildcard")]
 	[string]$ESXiHost,
- 
-    [switch]$InstallUpdates,
+    
+    [Parameter(Mandatory=$False, HelpMessage="Switch to enable prompting of available Update Manager baselines. Do not use with -baseline")]
+    [switch]$PromptBaseline,
 
     [Parameter(Mandatory=$False, HelpMessage="Name of Update Manager baseline to apply")]
     [string]$Baseline,
@@ -77,18 +78,17 @@ if ($ESXiHost -eq "") {
     $ESXiHost = Read-Host "ESXi Host"
 }
 
-if ($InstallUpdates -and $Baseline) {
-    $Baseline = Get-Baseline $Baseline
-}
-
-if ($InstallUpdates -and !$Baseline) {
+if ($PromptBaseline) {
     $x=1
     $BaselineList = $ESXiClusterObject | get-vmhost | Get-Baseline -Inherit | sort LastUpdateTime -descending
     Write-Host "`nAvailable Update Manager Baselines"
     $BaselineList | %{Write-Host $x":" $_.name ; $x++}
     $x = Read-Host "Enter the number of the Baseline"
     $Baseline = $BaselineList[$x-1]
-}
+} 
+if ($PromptBaseline-eq $False -and $Baseline -ne "") {
+    $Baseline = Get-Baseline $Baseline
+}#>
 
 
 If ($FirmwarePackage -eq "") {
@@ -143,7 +143,7 @@ try {
         Write-Host "vC: ESXi Host: $($VMHost.Name) now in Maintenance Mode"
 
 
-        if ($InstallUpdates) {
+        if ($Baseline -ne "") {
             Write-Host "VC: Installing Updates on host $($VMhost.name)"
             Test-compliance -entity $vmhost -whatif
             #Remediate-Inventory -baseline $Baseline -entity $vmhost -whatif
