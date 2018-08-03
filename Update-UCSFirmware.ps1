@@ -38,7 +38,7 @@
   .\Update-UCSFirmware.ps1
 #>
 
-
+<#
 [CmdletBinding()]
 Param(
 	[Parameter(Mandatory=$True, HelpMessage="ESXi Cluster to Update")]
@@ -50,6 +50,30 @@ Param(
 	[Parameter(Mandatory=$True, HelpMessage="UCS Host Firmware Package Name")]
 	[string]$DestFirmwarePackage
 )
+#>
+
+########################################
+# Listing Available options
+########################################
+$x=1
+$ClusterList = Get-Cluster | sort name
+Write-Host "`nAvailable Clusters to update"
+$ClusterList | %{Write-Host $x":" $_.name ; $x++}
+$x = Read-Host "Enter the number of the package for the update"
+$ESXiCluster = $ClusterList[$x-1].name
+
+Write-Host "`nEnter name of ESXi Host to update. `nSpecify a FQDN, * for all hosts in cluster, or a wildcard such as Server1*"
+$ESXiHost = Read-Host "ESXi Host"
+
+
+$x=1
+$FirmwarePackageList = Get-UcsFirmwareComputeHostPack | select name -unique | sort name
+Write-Host "`nHost Firmware Packages available on connected UCS systems"
+$FirmwarePackageList | %{Write-Host $x":" $_.name ; $x++}
+$x = Read-Host "Enter the number of the package for the update"
+$DestFirmwarePackage = $FirmwarePackageList[$x-1].name
+
+
  
 Write-Host "Starting process at $(date)"
 Write-Host "Working on ESXi Cluster: $ESXiCluster"
@@ -90,6 +114,8 @@ try {
 		} until ((Get-VMHost $VMHost).State -eq "Maintenance")
  
 #Will add ability to install a VIB or Update Manager baseline here to install new drivers prior to shutdown
+        Test-compliance -entity $vmhost
+        get-baseline -name "*3.2*" | remediate-inventory -entity $vmhost -whatif
 
 		Write-Host "vC: ESXi Host: $($VMHost.Name) now in Maintenance Mode, shutting down Host"
 		#$Shutdown = $VMHost.ExtensionData.ShutdownHost($true)
