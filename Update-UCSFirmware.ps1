@@ -1,7 +1,7 @@
 ﻿#requires -version 2
 <#
 .SYNOPSIS
-  Script to update Cisco UCS Firmware on VMware based blades in a rolling update manner, by VMware Cluster
+  Script to update Cisco UCS Firmware on VMware based blades in a rolling update manner, by VMware cluster
 .DESCRIPTION
   User provides vSphere cluster, hostname pattern, and UCS Host Firmware Policy name.
   The script will sequentially check if each host is running the requested firmware.
@@ -36,6 +36,7 @@
   Adapted from Cisco example found here: https://communities.cisco.com/docs/DOC-36050
 .EXAMPLE
   .\Update-UCSFirmware.ps1
+  .\Update-UCSFirmware.ps1 -ESXiCluster "UCS1 Windows" -ESXiHost "*" -FirmwarePackage "3.2(3d)" -InstallUpdates
 #>
 
 
@@ -47,8 +48,13 @@ Param(
 	[Parameter(Mandatory=$False, HelpMessage="ESXi Host(s) in cluster to update. Specify * for all hosts or as a wildcard")]
 	[string]$ESXiHost,
  
+    [switch]$InstallUpdates,
+
+    [Parameter(Mandatory=$False, HelpMessage="Name of Update Manager baseline to apply")]
+    [string]$Baseline,
+
 	[Parameter(Mandatory=$False, HelpMessage="UCS Host Firmware Package Name")]
-	[string]$DestFirmwarePackage
+	[string]$FirmwarePackage
 )
 
 
@@ -61,7 +67,9 @@ if ($ESXiCluster -eq "") {
     Write-Host "`nAvailable Clusters to update"
     $ClusterList | %{Write-Host $x":" $_.name ; $x++}
     $x = Read-Host "Enter the number of the package for the update"
-    $ESXiCluster = $ClusterList[$x-1].name
+    $ESXiClusterObject = Get-Cluster $ClusterList[$x-1]
+}Else {
+    $ESXiClusterObject = Get-Cluster $ESXiCluster
 }
 
 if ($ESXiHost -eq "") {
@@ -69,23 +77,37 @@ if ($ESXiHost -eq "") {
     $ESXiHost = Read-Host "ESXi Host"
 }
 
-If ($DestFirmwarePackage -eq "") {
+if ($InstallUpdates -and $Baseline) {
+    $Baseline = Get-Baseline $Baseline
+}
+
+if ($InstallUpdates -and !$Baseline) {
+    $x=1
+    $BaselineList = $ESXiClusterObject | get-vmhost | Get-Baseline -Inherit | sort LastUpdateTime -descending
+    Write-Host "`nAvailable Update Manager Baselines"
+    $BaselineList | %{Write-Host $x":" $_.name ; $x++}
+    $x = Read-Host "Enter the number of the Baseline"
+    $Baseline = $BaselineList[$x-1]
+}
+
+
+If ($FirmwarePackage -eq "") {
     $x=1
     $FirmwarePackageList = Get-UcsFirmwareComputeHostPack | select name -unique | sort name
     Write-Host "`nHost Firmware Packages available on connected UCS systems"
     $FirmwarePackageList | %{Write-Host $x":" $_.name ; $x++}
     $x = Read-Host "Enter the number of the package for the update"
-    $DestFirmwarePackage = $FirmwarePackageList[$x-1].name
-}
+    $FirmwarePackage = $FirmwarePackageList[$x-1].name
+} 
 
  
 Write-Host "`nStarting process at $(date)"
-Write-Host "Working on ESXi Cluster: $ESXiCluster"
-Write-Host "Using Host Firmware Package: $DestFirmwarePackage"
+Write-Host "Working on ESXi Cluster: $($ESXiClusterObject.name)"
+Write-Host "Using Host Firmware Package: $FirmwarePackage"
  
 
 try {
-	Foreach ($VMHost in (Get-Cluster $ESXiCluster | Get-VMHost | Where { $_.Name -like "$ESXiHost" } )) {
+	Foreach ($VMHost in ($ESXiClusterObject | Get-VMHost | Where { $_.Name -like "$ESXiHost" } | sort name )) {
 		# Clearing Variables to be safe
         $MacAddr=$ServiceProfiletoUpdate=$UCShardware=$Maint=$Shutdown=$poweron=$ackuserack=$null
         
@@ -100,28 +122,34 @@ try {
             write-host $VMhost "was not found in UCS.  Skipping host"
             Continue
         }
-        if ((Get-UcsFirmwareComputeHostPack | where {$_.ucs -eq $ServiceProfileToUpdate.Ucs -and $_.name -eq $DestFirmwarePackage }).count -ne 1) {
-            write-host "Firmware Package" $DestFirmwarePackage "not found on" $ServiceProfileToUpdate.Ucs "for server" $vmhost.name
+        if ((Get-UcsFirmwareComputeHostPack | where {$_.ucs -eq $ServiceProfileToUpdate.Ucs -and $_.name -eq $FirmwarePackage }).count -ne 1) {
+            write-host "Firmware Package" $FirmwarePackage "not found on" $ServiceProfileToUpdate.Ucs "for server" $vmhost.name
             Continue
         }
-        if ($ServiceProfileToUpdate.HostFwPolicyName -eq $DestFirmwarePackage) {
-            Write-Host $ServiceProfileToUpdate.name "is already running firmware" $DestFirmwarePackage
+        if ($ServiceProfileToUpdate.HostFwPolicyName -eq $FirmwarePackage) {
+            Write-Host $ServiceProfileToUpdate.name "is already running firmware" $FirmwarePackage
             Continue
         }
 
 		Write-Host "vC: Placing ESXi Host: $($VMHost.Name) into maintenance mode"
 		#$Maint = $VMHost | Set-VMHost -State Maintenance -Evacuate
  
+ <#
 		Write-Host "vC: Waiting for ESXi Host: $($VMHost.Name) to enter Maintenance Mode"
 		do {
 			Sleep 10
 		} until ((Get-VMHost $VMHost).ConnectionState -eq "Maintenance")
- 
-#Will add ability to install a VIB or Update Manager baseline here to install new drivers prior to shutdown
-        Test-compliance -entity $vmhost
-        get-baseline -name "*3.2*" | remediate-inventory -entity $vmhost -whatif
+#>
+        Write-Host "vC: ESXi Host: $($VMHost.Name) now in Maintenance Mode"
 
-		Write-Host "vC: ESXi Host: $($VMHost.Name) now in Maintenance Mode, shutting down Host"
+
+        if ($InstallUpdates) {
+            Write-Host "VC: Installing Updates on host $($VMhost.name)"
+            Test-compliance -entity $vmhost -whatif
+            #Remediate-Inventory -baseline $Baseline -entity $vmhost -whatif
+        }
+
+		Write-Host "vC: ESXi Host: $($VMHost.Name) is now being shut down"
 		#$Shutdown = $VMHost.ExtensionData.ShutdownHost($true)
  
 
@@ -129,21 +157,21 @@ try {
  
 		Write-Host "UCS: ESXi Host: $($VMhost.Name) is running on UCS SP: $($ServiceProfileToUpdate.name)"
 		Write-Host "UCS: Waiting for UCS SP: $($ServiceProfileToUpdate.name) to gracefully power down"
-	 	do {
+<#	 	do {
 			if ( (get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfileToUpdate.Ucs).OperPower -eq "off")
 			{
 				break
 			}
 			Sleep 60
 		} until ((get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfileToUpdate.Ucs).OperPower -eq "off" )
-		Write-Host "UCS: UCS SP: $($ServiceProfileToUpdate.name) powered down"
+#>		Write-Host "UCS: UCS SP: $($ServiceProfileToUpdate.name) powered down"
  
 		Write-Host "UCS: Setting desired power state for UCS SP: $($ServiceProfileToUpdate.name) to down"
 		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "down" -Force | Out-Null
  
 
-		Write-Host "UCS: Changing Host Firmware pack policy for UCS SP: $($ServiceProfileToUpdate.name) to '$($DestFirmwarePackage)'"
-		#$updatehfp = $ServiceProfileToUpdate | Set-UcsServiceProfile -HostFwPolicyName (Get-UcsFirmwareComputeHostPack -Name $DestFirmwarePackage -Ucs $ServiceProfileToUpdate.Ucs).Name -Force
+		Write-Host "UCS: Changing Host Firmware pack policy for UCS SP: $($ServiceProfileToUpdate.name) to '$($FirmwarePackage)'"
+		#$updatehfp = $ServiceProfileToUpdate | Set-UcsServiceProfile -HostFwPolicyName (Get-UcsFirmwareComputeHostPack -Name $ServiceProfileToUpdate. -Ucs $ServiceProfileToUpdate.Ucs).Name -Force
  
 		Write-Host "UCS: Acknowledging any User Maintenance Actions for UCS SP: $($ServiceProfileToUpdate.name)"
 		if (($ServiceProfileToUpdate | Get-UcsLsmaintAck| measure).Count -ge 1)
@@ -152,18 +180,18 @@ try {
 			}
  
 		Write-Host "UCS: Waiting for UCS SP: $($ServiceProfileToUpdate.name) to complete firmware update process..."
-		do {
+<#		do {
 			Sleep 40
 		} until ((Get-UcsManagedObject -Dn $ServiceProfileToUpdate.Dn -ucs $ServiceProfileToUpdate.Ucs).AssocState -ieq "associated")
- 
+ #>
 		Write-Host "UCS: Host Firmware Pack update process complete.  Setting desired power state for UCS SP: $($ServiceProfileToUpdate.name) to 'up'"
 		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "up" -Force | Out-Null
  
 		Write "vC: Waiting for ESXi: $($VMHost.Name) to connect to vCenter"
-		do {
+<#		do {
 			Sleep 40
 		} until (($VMHost = Get-VMHost $VMHost).ConnectionState -ne "NotResponding" ) 
-        Write-host "VC: Exiting maintenance mode"
+#>        Write-host "VC: Exiting maintenance mode"
         #$VMHost | Set-VMHost -State Connected 
 	}
 }
