@@ -112,27 +112,25 @@ Write-Host "Using Host Firmware Package: $FirmwarePackage"
 
 try {
 	Foreach ($VMHost in ($ESXiClusterObject | Get-VMHost | Where { $_.Name -like "$ESXiHost" } | sort name )) {
-		# Clearing Variables to be safe
-        $MacAddr=$ServiceProfiletoUpdate=$UCShardware=$Maint=$Shutdown=$poweron=$ackuserack=$null
+		$MacAddr=$ServiceProfiletoUpdate=$UCShardware=$Maint=$Shutdown=$poweron=$ackuserack=$null
         
         Write-Host "Processing $($VMHost.name)"
         Write-Host "UCS: Correlating ESXi Host: $($VMHost.Name) to running UCS Service Profile (SP)"
  	    $MacAddr = Get-VMHostNetworkAdapter -vmhost $vmhost -Physical | where {$_.BitRatePerSec -gt 0} | select -first 1 #Select first connected physical NIC
         $ServiceProfileToUpdate =  Get-UcsServiceProfile | Get-UcsVnic |  where { $_.addr -ieq  $MacAddr.Mac } | Get-UcsParent
-	    # Find the physical hardware the service profile is running on:
 	    $UCSHardware = $ServiceProfileToUpdate.PnDn
         
-        #Validating environment
+        Write-Host "Validating Settings"
         if ($ServiceProfileToUpdate -eq $null) {
-            write-host $VMhost "was not found in UCS.  Skipping host"
+            write-host $VMhost "was not found in UCS.  Skipping host" -foregroundcolor Red
             Continue
         }
         if ((Get-UcsFirmwareComputeHostPack | where {$_.ucs -eq $ServiceProfileToUpdate.Ucs -and $_.name -eq $FirmwarePackage }).count -ne 1) {
-            write-host "Firmware Package" $FirmwarePackage "not found on" $ServiceProfileToUpdate.Ucs "for server" $vmhost.name
+            write-host "Firmware Package" $FirmwarePackage "not found on" $ServiceProfileToUpdate.Ucs "for server" $vmhost.name -foregroundcolor Red
             Continue
         }
         if ($ServiceProfileToUpdate.HostFwPolicyName -eq $FirmwarePackage) {
-            Write-Host $ServiceProfileToUpdate.name "is already running firmware" $FirmwarePackage
+            Write-Host $ServiceProfileToUpdate.name "is already running firmware" $FirmwarePackage -foregroundcolor Red
             Continue
         }
 
@@ -150,8 +148,8 @@ try {
 
         if ($Baseline -ne "") {
             Write-Host "VC: Installing Updates on host $($VMhost.name)"
-            Test-compliance -entity $vmhost -whatif
-            #Remediate-Inventory -baseline $Baseline -entity $vmhost -whatif
+            #Test-compliance -entity $vmhost
+            #Remediate-Inventory -baseline $Baseline -entity $vmhost
         }
 
 		Write-Host "vC: ESXi Host: $($VMHost.Name) is now being shut down"
