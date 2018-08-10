@@ -148,8 +148,11 @@ try {
 
         if ($Baseline -ne "") {
             Write-Host "VC: Installing Updates on host $($VMhost.name)"
-            #Test-compliance -entity $vmhost
-            #Remediate-Inventory -baseline $Baseline -entity $vmhost
+            <#
+            Test-compliance -entity $vmhost
+            #Remediate-Inventory -baseline $Baseline -entity $vmhost -confirm:$False
+            $VMHost | Set-VMHost -State Maintenance -Evacuate
+            #>
         }
 
 		Write-Host "vC: ESXi Host: $($VMHost.Name) is now being shut down"
