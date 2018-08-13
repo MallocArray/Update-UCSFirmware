@@ -85,7 +85,7 @@ if ($ESXiHost -eq "") {
 if ($PromptBaseline) {
     $x=1
     $BaselineList = $ESXiClusterObject | get-vmhost | Get-Baseline -Inherit | sort LastUpdateTime -descending
-    Write-Host "`nAvailable Update Manager Baselines"
+    Write-Host "`nAvailable Update Manager Baselines in this cluster.  `nIf the desired baseline is missing, attach it to the cluster or host and run the script again."
     $BaselineList | %{Write-Host $x":" $_.name ; $x++}
     $x = Read-Host "Enter the number of the Baseline"
     $Baseline = $BaselineList[$x-1]
@@ -133,9 +133,14 @@ try {
             Write-Host $ServiceProfileToUpdate.name "is already running firmware" $FirmwarePackage -foregroundcolor Red
             Continue
         }
+        if ($ESXiClusterObject.DrsEnabled -eq $False) {
+            Write-Host $ESXiClusterObject.name "does not have DRS enabled.  Automatic maintenance mode is not possible. `nPlease put hosts into maintenace mode manually"
+        }
 
 		Write-Host "vC: Placing ESXi Host: $($VMHost.Name) into maintenance mode"
-		#$Maint = $VMHost | Set-VMHost -State Maintenance -Evacuate
+		<#
+        $Maint = $VMHost | Set-VMHost -State Maintenance -Evacuate
+        #>
  
  <#
 		Write-Host "vC: Waiting for ESXi Host: $($VMHost.Name) to enter Maintenance Mode"
@@ -150,7 +155,7 @@ try {
             Write-Host "VC: Installing Updates on host $($VMhost.name)"
             <#
             Test-compliance -entity $vmhost
-            #Remediate-Inventory -baseline $Baseline -entity $vmhost -confirm:$False
+            Remediate-Inventory -baseline $Baseline -entity $vmhost -confirm:$False
             $VMHost | Set-VMHost -State Maintenance -Evacuate
             #>
         }
@@ -173,11 +178,11 @@ try {
 #>		Write-Host "UCS: UCS SP: $($ServiceProfileToUpdate.name) powered down"
  
 		Write-Host "UCS: Setting desired power state for UCS SP: $($ServiceProfileToUpdate.name) to down"
-		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "down" -Force | Out-Null
+		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "down" -Force
  
 
 		Write-Host "UCS: Changing Host Firmware pack policy for UCS SP: $($ServiceProfileToUpdate.name) to '$($FirmwarePackage)'"
-		#$updatehfp = $ServiceProfileToUpdate | Set-UcsServiceProfile -HostFwPolicyName (Get-UcsFirmwareComputeHostPack -Name $ServiceProfileToUpdate. -Ucs $ServiceProfileToUpdate.Ucs).Name -Force
+		#$updatehfp = $ServiceProfileToUpdate | Set-UcsServiceProfile -HostFwPolicyName $FirmwarePackage -Force
  
 		Write-Host "UCS: Acknowledging any User Maintenance Actions for UCS SP: $($ServiceProfileToUpdate.name)"
 		if (($ServiceProfileToUpdate | Get-UcsLsmaintAck| measure).Count -ge 1)
@@ -191,7 +196,7 @@ try {
 		} until ((Get-UcsManagedObject -Dn $ServiceProfileToUpdate.Dn -ucs $ServiceProfileToUpdate.Ucs).AssocState -ieq "associated")
  #>
 		Write-Host "UCS: Host Firmware Pack update process complete.  Setting desired power state for UCS SP: $($ServiceProfileToUpdate.name) to 'up'"
-		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "up" -Force | Out-Null
+		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "up" -Force
  
 		Write "vC: Waiting for ESXi: $($VMHost.Name) to connect to vCenter"
 <#		do {
