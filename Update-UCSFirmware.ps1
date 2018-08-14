@@ -25,10 +25,14 @@
     Import-Module Cisco.UCSManager
     Set-UcsPowerToolConfiguration -supportmultipledefaultucs $true 
     connect-ucs $UCSManagers -Credential $UCSAccount
+
+    To prevent issues with Remediation of Update Manager Baselines reporting an error, run the following command to 
+    extend the timeout from 5 minutes to 20 minutes
+    Set-PowerCLIConfiguration -Scope AllUsers -WebOperationTimeoutSeconds 1200 -Confirm:$False
 .OUTPUTS
   None
 .NOTES
-  Version:        1.2
+  Version:        1.3
   Author:         Joshua Post
   Creation Date:  8/2/2018
   Purpose/Change: Modification of other base scripts to support multiple UCS connections and Update Manager to install drivers associated with firmware update
@@ -91,8 +95,8 @@ if ($PromptBaseline) {
     $Baseline = $BaselineList[$x-1]
 } 
 if ($PromptBaseline-eq $False -and $Baseline -ne "") {
-    $Baseline = Get-Baseline $Baseline
-}#>
+    [VMware.VumAutomation.Types.PatchBaselineImpl]$Baseline = $ESXiClusterObject | get-vmhost | Get-Baseline -Inherit $Baseline
+}
 
 
 If ($FirmwarePackage -eq "") {
@@ -109,18 +113,27 @@ Write-Host "`nStarting process at $(date)"
 Write-Host "Working on ESXi Cluster: $($ESXiClusterObject.name)"
 Write-Host "Using Host Firmware Package: $FirmwarePackage"
  
-
+$Progress=-1
+$VMHosts = $ESXiClusterObject | Get-VMHost | Where { $_.Name -like "$ESXiHost" } | sort name
 try {
-	Foreach ($VMHost in ($ESXiClusterObject | Get-VMHost | Where { $_.Name -like "$ESXiHost" } | sort name )) {
-		$MacAddr=$ServiceProfiletoUpdate=$UCShardware=$Maint=$Shutdown=$poweron=$ackuserack=$null
+	Foreach ($VMHost in $VMHosts) {
+		$MacAddr=$ServiceProfiletoUpdate=$UCShardware=$Maint=$Shutdown=$poweron=$ackuserack=$null #Emptying variables
         
-        Write-Host "Processing $($VMHost.name)"
+        $Progress++
+        Write-Progress -Activity 'Update Process' -CurrentOperation $vmhost.name -PercentComplete (($Progress / $VMHosts.count) * 100)
+
+        if (($VMHost = Get-VMHost $VMHost).ConnectionState -eq "NotResponding") {
+            Write-Error "$($vmhost.name) is not responding.  Skipping."
+            Continue
+        }
+
+        Write-Host "Processing $($VMHost.name) at $(date)"
         Write-Host "UCS: Correlating ESXi Host: $($VMHost.Name) to running UCS Service Profile (SP)"
  	    $MacAddr = Get-VMHostNetworkAdapter -vmhost $vmhost -Physical | where {$_.BitRatePerSec -gt 0} | select -first 1 #Select first connected physical NIC
         $ServiceProfileToUpdate =  Get-UcsServiceProfile | Get-UcsVnic |  where { $_.addr -ieq  $MacAddr.Mac } | Get-UcsParent
 	    $UCSHardware = $ServiceProfileToUpdate.PnDn
         
-        Write-Host "Validating Settings"
+        Write-Verbose "Validating Settings"
         if ($ServiceProfileToUpdate -eq $null) {
             write-host $VMhost "was not found in UCS.  Skipping host" -foregroundcolor Red
             Continue
@@ -130,7 +143,7 @@ try {
             Continue
         }
         if ($ServiceProfileToUpdate.HostFwPolicyName -eq $FirmwarePackage) {
-            Write-Host $ServiceProfileToUpdate.name "is already running firmware" $FirmwarePackage -foregroundcolor Red
+            Write-Host $ServiceProfileToUpdate.name "is already running firmware" $FirmwarePackage -foregroundcolor Yellow
             Continue
         }
         if ($ESXiClusterObject.DrsEnabled -eq $False) {
@@ -138,73 +151,66 @@ try {
         }
 
 		Write-Host "vC: Placing ESXi Host: $($VMHost.Name) into maintenance mode"
-		<#
         $Maint = $VMHost | Set-VMHost -State Maintenance -Evacuate
-        #>
  
- <#
-		Write-Host "vC: Waiting for ESXi Host: $($VMHost.Name) to enter Maintenance Mode"
+ 		Write-Host "vC: Waiting for ESXi Host: $($VMHost.Name) to enter Maintenance Mode"
 		do {
 			Sleep 10
 		} until ((Get-VMHost $VMHost).ConnectionState -eq "Maintenance")
-#>
         Write-Host "vC: ESXi Host: $($VMHost.Name) now in Maintenance Mode"
 
 
         if ($Baseline -ne "") {
             Write-Host "VC: Installing Updates on host $($VMhost.name)"
-            <#
             Test-compliance -entity $vmhost
             Remediate-Inventory -baseline $Baseline -entity $vmhost -confirm:$False
-            $VMHost | Set-VMHost -State Maintenance -Evacuate
-            #>
+            $Maint = $VMHost | Set-VMHost -State Maintenance -Evacuate
         }
-
+        #Read-Host "Last Chance to quit"
 		Write-Host "vC: ESXi Host: $($VMHost.Name) is now being shut down"
-		#$Shutdown = $VMHost.ExtensionData.ShutdownHost($true)
+		$Shutdown = $VMHost.ExtensionData.ShutdownHost($true)
  
-
-
- 
-		Write-Host "UCS: ESXi Host: $($VMhost.Name) is running on UCS SP: $($ServiceProfileToUpdate.name)"
+ 		Write-Host "UCS: ESXi Host: $($VMhost.Name) is running on UCS SP: $($ServiceProfileToUpdate.name)"
 		Write-Host "UCS: Waiting for UCS SP: $($ServiceProfileToUpdate.name) to gracefully power down"
-<#	 	do {
+	 	do {
 			if ( (get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfileToUpdate.Ucs).OperPower -eq "off")
 			{
 				break
 			}
 			Sleep 60
 		} until ((get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfileToUpdate.Ucs).OperPower -eq "off" )
-#>		Write-Host "UCS: UCS SP: $($ServiceProfileToUpdate.name) powered down"
+		Write-Host "UCS: UCS SP: $($ServiceProfileToUpdate.name) powered down"
  
 		Write-Host "UCS: Setting desired power state for UCS SP: $($ServiceProfileToUpdate.name) to down"
-		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "down" -Force
+		$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "down" -Force
  
 
 		Write-Host "UCS: Changing Host Firmware pack policy for UCS SP: $($ServiceProfileToUpdate.name) to '$($FirmwarePackage)'"
-		#$updatehfp = $ServiceProfileToUpdate | Set-UcsServiceProfile -HostFwPolicyName $FirmwarePackage -Force
+		$updatehfp = $ServiceProfileToUpdate | Set-UcsServiceProfile -HostFwPolicyName $FirmwarePackage -Force
  
 		Write-Host "UCS: Acknowledging any User Maintenance Actions for UCS SP: $($ServiceProfileToUpdate.name)"
 		if (($ServiceProfileToUpdate | Get-UcsLsmaintAck| measure).Count -ge 1)
 			{
-				#$ackuserack = $ServiceProfileToUpdate | get-ucslsmaintack | Set-UcsLsmaintAck -AdminState "trigger-immediate" -Force
+				$ackuserack = $ServiceProfileToUpdate | get-ucslsmaintack | Set-UcsLsmaintAck -AdminState "trigger-immediate" -Force
 			}
  
 		Write-Host "UCS: Waiting for UCS SP: $($ServiceProfileToUpdate.name) to complete firmware update process..."
-<#		do {
+		do {
 			Sleep 40
 		} until ((Get-UcsManagedObject -Dn $ServiceProfileToUpdate.Dn -ucs $ServiceProfileToUpdate.Ucs).AssocState -ieq "associated")
- #>
+
 		Write-Host "UCS: Host Firmware Pack update process complete.  Setting desired power state for UCS SP: $($ServiceProfileToUpdate.name) to 'up'"
-		#$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "up" -Force
+		$poweron = $ServiceProfileToUpdate | Set-UcsServerPower -State "up" -Force
  
 		Write "vC: Waiting for ESXi: $($VMHost.Name) to connect to vCenter"
-<#		do {
+		do {
 			Sleep 40
 		} until (($VMHost = Get-VMHost $VMHost).ConnectionState -ne "NotResponding" ) 
-#>        Write-host "VC: Exiting maintenance mode"
-        #$VMHost | Set-VMHost -State Connected 
-	}
+        
+        Write-host "VC: Exiting maintenance mode on $(date)"
+        $Maint = $VMHost | Set-VMHost -State Connected 
+	    
+    }
 }
 Catch 
 {
