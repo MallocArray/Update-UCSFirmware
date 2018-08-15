@@ -54,13 +54,10 @@ Param(
 	[Parameter(Mandatory=$False, HelpMessage="ESXi Cluster to Update")]
 	[string]$ESXiCluster,
  
-	[Parameter(Mandatory=$False, HelpMessage="ESXi Host(s) in cluster to update. Specify * for all hosts or as a wildcard")]
+	[Parameter(Mandatory=$False, HelpMessage="ESXi Host(s) in cluster to update. Specify * in quotes for all hosts or as a wildcard")]
 	[string]$ESXiHost,
     
-    [Parameter(Mandatory=$False, HelpMessage="Switch to enable prompting of available Update Manager baselines. Do not use with -baseline")]
-    [switch]$PromptBaseline,
-
-    [Parameter(Mandatory=$False, HelpMessage="Name of Update Manager baseline to apply")]
+    [Parameter(Mandatory=$False, HelpMessage="Name of Update Manager baseline to apply or * in quotes for all attached baselines and 999 to skip updates")]
     [string]$Baseline,
 
 	[Parameter(Mandatory=$False, HelpMessage="UCS Host Firmware Package Name")]
@@ -87,16 +84,22 @@ if ($ESXiHost -eq "") {
     $ESXiHost = Read-Host "ESXi Host"
 }
 
-if ($PromptBaseline) {
+if ($Baseline -eq "") {
     $x=1
     $BaselineList = $ESXiClusterObject | get-vmhost | Get-Baseline -Inherit | sort LastUpdateTime -descending
     Write-Host "`nAvailable Update Manager Baselines in this cluster.  `nIf the desired baseline is missing, attach it to the cluster or host and run the script again."
+    Write-Host "Enter 999 to skip baseline updates. `n0: All Available Updates"
     $BaselineList | %{Write-Host $x":" $_.name ; $x++}
     $x = Read-Host "Enter the number of the Baseline"
-    [VMware.VumAutomation.Types.PatchBaselineImpl]$Baseline = $BaselineList[$x-1]
+    switch ($x) {
+        '0' { $BaselineObject = $BaselineList }
+        '999' { $BaselineObject = "" }
+        default { $BaselineObject = $BaselineList[$x-1] }
+    }
 } 
-if ($PromptBaseline-eq $False -and $Baseline -ne "") {
-    [VMware.VumAutomation.Types.PatchBaselineImpl]$Baseline = $ESXiClusterObject | get-vmhost | Get-Baseline -Inherit $Baseline
+if ($Baseline -ne "") {
+    if ($Baseline -eq '999') { $BaselineObject = "" }
+    else { $BaselineObject = $ESXiClusterObject | get-vmhost | Get-Baseline -Inherit $Baseline }
 }
 
 
@@ -134,7 +137,7 @@ try {
  	    $MacAddr = Get-VMHostNetworkAdapter -vmhost $vmhost -Physical | where {$_.BitRatePerSec -gt 0} | select -first 1 #Select first connected physical NIC
         $ServiceProfileToUpdate =  Get-UcsServiceProfile | Get-UcsVnic |  where { $_.addr -ieq  $MacAddr.Mac } | Get-UcsParent
 	    $UCSHardware = $ServiceProfileToUpdate.PnDn
-        
+    
         Write-Verbose "Validating Settings"
         if ($ServiceProfileToUpdate -eq $null) {
             write-host $VMhost "was not found in UCS.  Skipping host" -foregroundcolor Red
@@ -162,17 +165,18 @@ try {
         Write-Host "vC: ESXi Host: $($VMHost.Name) now in Maintenance Mode"
 
 
-        if ($Baseline -ne "") {
+        if ($BaselineObject -ne "") {
             Write-Host "VC: Installing Updates on host $($VMhost.name)"
             Test-compliance -entity $vmhost
-            Remediate-Inventory -baseline $Baseline -entity $vmhost -confirm:$False
+            Remediate-Inventory -baseline $BaselineObject -entity $vmhost -confirm:$False
             $Maint = $VMHost | Set-VMHost -State Maintenance -Evacuate
         }
+
         #Read-Host "Last Chance to quit"
-		Write-Host "vC: ESXi Host: $($VMHost.Name) is now being shut down"
+    	Write-Host "vC: ESXi Host: $($VMHost.Name) is now being shut down"
 		$Shutdown = $VMHost.ExtensionData.ShutdownHost($true)
  
- 		Write-Host "UCS: ESXi Host: $($VMhost.Name) is running on UCS SP: $($ServiceProfileToUpdate.name)"
+ 		Write-Host "UCS: ESXi Host: $($VMhost.Name) is running on UCS $($ServiceProfileToUpdate.Ucs) SP: $($ServiceProfileToUpdate.name)"
 		Write-Host "UCS: Waiting for UCS SP: $($ServiceProfileToUpdate.name) to gracefully power down"
 	 	do {
 			if ( (get-ucsmanagedobject -dn $ServiceProfileToUpdate.PnDn -ucs $ServiceProfileToUpdate.Ucs).OperPower -eq "off")
@@ -211,7 +215,7 @@ try {
         
         Write-host "VC: Exiting maintenance mode on $(date)"
         $Maint = $VMHost | Set-VMHost -State Connected 
-	    
+
         #Finishing Up
         $ElapsedTime = $(get-date) - $StartTime
         write-host "$($VMhost.name) completed in $($elapsedTime.ToString("hh\:mm\:ss"))`n"
