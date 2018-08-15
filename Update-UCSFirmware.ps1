@@ -25,17 +25,10 @@
     $UCSManagers= @("192.168.0.1","UCS1.domain.local")
     Import-Module Cisco.UCSManager
     Set-UcsPowerToolConfiguration -supportmultipledefaultucs $true 
-<<<<<<< HEAD
     connect-ucs $UCSManagers
 
     To prevent issues with Remediation of Update Manager Baselines reporting an error, run the following command to 
     extend the timeout from 5 minutes to 20 minutes and then close and open the Powershell window
-=======
-    connect-ucs $UCSManagers -Credential $UCSAccount
-
-    To prevent issues with Remediation of Update Manager Baselines reporting an error, run the following command to 
-    extend the timeout from 5 minutes to 20 minutes
->>>>>>> bd512aa908d69bbaa3332866c99528b4d0908aeb
     Set-PowerCLIConfiguration -Scope AllUsers -WebOperationTimeoutSeconds 1200 -Confirm:$False
 .OUTPUTS
   None
@@ -126,12 +119,8 @@ $VMHosts = $ESXiClusterObject | Get-VMHost | Where { $_.Name -like "$ESXiHost" }
 try {
 	Foreach ($VMHost in $VMHosts) {
 		$MacAddr=$ServiceProfiletoUpdate=$UCShardware=$Maint=$Shutdown=$poweron=$ackuserack=$null #Emptying variables
-<<<<<<< HEAD
         $StartTime = Get-Date 
 
-=======
-        
->>>>>>> bd512aa908d69bbaa3332866c99528b4d0908aeb
         $Progress++
         Write-Progress -Activity 'Update Process' -CurrentOperation $vmhost.name -PercentComplete (($Progress / $VMHosts.count) * 100)
 
@@ -223,12 +212,9 @@ try {
         Write-host "VC: Exiting maintenance mode on $(date)"
         $Maint = $VMHost | Set-VMHost -State Connected 
 	    
-<<<<<<< HEAD
         #Finishing Up
         $ElapsedTime = $(get-date) - $StartTime
         write-host "$($VMhost.name) completed in $($elapsedTime.ToString("hh\:mm\:ss"))`n"
-=======
->>>>>>> bd512aa908d69bbaa3332866c99528b4d0908aeb
     }
 }
 Catch 
