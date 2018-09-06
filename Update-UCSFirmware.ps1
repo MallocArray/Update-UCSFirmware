@@ -35,7 +35,9 @@
 .NOTES
   Version:        1.4
   Author:         Joshua Post
-  Modify Date:    8/15/2018
+  Modify Date:    09/06/2018
+  https://github.com/MallocArray/Update-UCSFirmware
+
   Purpose/Change: Modification of other base scripts to support multiple UCS connections and Update Manager to install drivers associated with firmware update
   Based on http://timsvirtualworld.com/2014/02/automate-ucs-esxi-host-firmware-updates-with-powerclipowertool/
   Adapted from Cisco example found here: https://communities.cisco.com/docs/DOC-36050
